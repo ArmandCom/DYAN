@@ -39,7 +39,7 @@ from DyanOF import OFModel
 
 ############################# Import Section #################################
 
-
+lambd = 0.1
 
 ## HyperParameters for the Network
 NumOfPoles = 40
@@ -55,7 +55,7 @@ gpu_id = 1  # 3?
 # Input -  9 Optical Flow
 # Output - 1 Optical Flow
 
-FRA = 3 # input number of frame
+FRA = 5 # input number of frame
 PRE = 1 # output number of frame
 N_FRAME = FRA+PRE
 N = NumOfPoles*4
@@ -72,29 +72,29 @@ px_ev = False # save plots of pixel evolutiona and OF inputs.
 
 
 ## Load saved model
-load_ckpt = True
+load_ckpt = False
 ckpt_file = 'MS_Model_4px_22.pth' # for Kitti Dataset: 'KittiModel.pth'
 # checkptname = "UCFModel"
-checkptname = "MS_Model_4px_"
+checkptname = "Kitti_lam01_OF_Standard_FRA5_loss-PRE_"
 
 
 
 ## Load input data
 
 # set train list name:
-trainFolderFile = './datasets/DisentanglingMotion/importing_data/moving_symbols/MovingSymbols2_trainlist.txt'
+# trainFolderFile = './datasets/DisentanglingMotion/importing_data/moving_symbols/MovingSymbols2_trainlist.txt'
 # trainFolderFile = 'trainlist01.txt'
 
 # set training data directory:
-rootDir = './datasets/DisentanglingMotion/importing_data/moving_symbols/output/MovingSymbols2_same_4px-OF/train'
-# rootDir = './datasets/UCF-101-Frames'
+# rootDir = './datasets/DisentanglingMotion/importing_data/moving_symbols/output/MovingSymbols2_same_4px-OF/train'
+rootDir = '/home/armandcomas/datasets/Kitti_Flows/'
 
-trainFoldeList = getListOfFolders(trainFolderFile)[::10]
+# trainFoldeList = getListOfFolders(trainFolderFile)[::10]
 # if Kitti dataset: use listOfFolders instead of trainFoldeList
-# listOfFolders = [name for name in os.listdir(rootDir) if os.path.isdir(os.path.join(rootDir, name))]
+listOfFolders = [name for name in os.listdir(rootDir) if os.path.isdir(os.path.join(rootDir, name))]
 
 
-trainingData = videoDataset(folderList=trainFoldeList,
+trainingData = videoDataset(folderList=listOfFolders,
                             rootDir=rootDir,
                             N_FRAME=N_FRAME,
                             N_FRAME_FOLDER = N_FRAME_FOLDER)
@@ -112,7 +112,7 @@ Dtheta = torch.from_numpy(Dtheta).float()
 # What and where is gamma
 
 ## Create the model
-model = OFModel(Drr, Dtheta, T, PRE, gpu_id)
+model = OFModel(Drr, Dtheta, T, PRE, lambd, gpu_id)
 model.cuda(gpu_id)
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[50,100], gamma=0.1) # if Kitti: milestones=[100,150]

@@ -20,7 +20,7 @@ import numpy as np
 # Create Dictionary
 def creatRealDictionary(T, Drr, Dtheta, gpu_id):
     WVar = []
-    print(gpu_id)
+    gpu_id = gpu_id
     Wones = torch.ones(1).cuda(gpu_id)
     Wones = Variable(Wones, requires_grad=False)
 
@@ -111,6 +111,11 @@ class OFModel(nn.Module):
     def __init__(self, Drr, Dtheta, T, PRE, x_fra, y_fra):
         super(OFModel, self).__init__()
 
+        self.Clen = len(Drr)*4 +1
+        self.T = T
+        self.x_fra = x_fra
+        self.y_fra = y_fra
+
         self.et = Encoder(Drr, Dtheta, T)
         self.esH = Encoder(Drr, Dtheta, y_fra)
         self.esV = Encoder(Drr, Dtheta, x_fra)
@@ -122,34 +127,31 @@ class OFModel(nn.Module):
 
     # Mirar que no comparteixin diccionari temporal i espaials
     def forward(self, x):
-        return self.dt(self.et(x))
+        # TODO Multiprocessing with multiprocessing.set_start_method('spawn') to split model in gpu's
+        # TODO Block DataParallel
+
+        gpu_id = x.get_device()
+        out = torch.empty(2, self.T, (self.x_fra + self.y_fra) * self.Clen).cuda(gpu_id)
+
+        for i in range(self.T):
+            inputFrame = Variable(x[:, i, :].view(-1, self.x_fra, self.y_fra))
+
+            outputH, outputV = [self.esH(inputFrame.permute(0, 2, 1)), self.esV(inputFrame)]
+            output = torch.cat((outputH.view(-1, self.Clen * self.x_fra), outputV.view(-1, self.Clen * self.y_fra)), 1)
+            out[:, i, :] = output
+
+        cPred = self.dt(self.et(out))
+        cPredH = cPred[:, self.T, 0:(self.Clen * self.x_fra)].view(2, self.Clen, self.x_fra)
+        cPredV = cPred[:, self.T, (self.Clen * self.x_fra): ].view(2, self.Clen, self.y_fra)
+
+        outH, outV = [self.dsH(cPredH), self.dsV(cPredV)]
+
+        pred = ((outH.permute(0, 2, 1) + outV) / 2).view(-1, self.x_fra * self.y_fra).unsqueeze(0)
+
+        return pred
 
     def forwardE(self, xH, xV):
         return self.esH(xH), self.esV(xV)
 
     def forwardD(self, xH, xV):
         return self.dsH(xH), self.dsV(xV)
-
-
-## NON PARALLELIZED MODEL
-# class OFModel(nn.Module):
-#     def __init__(self, Drr, Dtheta, T, PRE, x_fra, y_fra, gpu_id):
-#         super(OFModel, self).__init__()
-#
-#         self.et = Encoder(Drr, Dtheta, T, gpu_id)
-#         self.esH = Encoder(Drr, Dtheta, y_fra, gpu_id)
-#         self.esV = Encoder(Drr, Dtheta, x_fra, gpu_id)
-#
-#         self.dt = Decoder(self.et.rr, self.et.theta, T, PRE, gpu_id)
-#         self.dsH = Decoder(self.esH.rr, self.esH.theta, y_fra, 0, gpu_id)
-#         self.dsV = Decoder(self.esH.rr, self.esH.theta, x_fra, 0, gpu_id)
-#
-#     # Mirar que no comparteixin diccionari temporal i espaials
-#     def forward(self, x):
-#         return self.dt(self.et(x))
-#
-#     def forwardE(self, xH, xV):
-#         return self.esH(xH),self.esV(xV)
-#
-#     def forwardD(self, xH, xV):
-#         return self.dsH(xH),self.dsV(xV)

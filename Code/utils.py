@@ -14,12 +14,13 @@ import torch
 from torchvision import transforms
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
+from skimage import measure
 ############################# Import Section #################################
 
 ## Dataloader for PyTorch.
 class videoDataset(Dataset):
     """Dataset Class for Loading Video"""
-    def __init__(self, folderList, rootDir, N_FRAME, N_FRAME_FOLDER): #N_FRAME = FRA+PRE
+    def __init__(self, folderList, rootDir, N_FRAME): #N_FRAME = FRA+PRE
 
         """
         Args:
@@ -31,46 +32,23 @@ class videoDataset(Dataset):
         self.listOfFolders = folderList
         self.rootDir = rootDir
         self.nfra = N_FRAME
-        self.nfrafol = N_FRAME_FOLDER
         # self.numpixels = 240*320 # If Kitti dataset, self.numpixels = 128*160
-        self.numpixels = 64*64 # MNIST moving symbols dataset
+        self.numpixels = 128*160 # MNIST moving symbols dataset
 
     def __len__(self):
         return len(self.listOfFolders)
 
 
-    # def readData(self, folderName):
-    #     path = os.path.join(self.rootDir,folderName)
-    #     OF = torch.FloatTensor(2, self.nfra, self.numpixels)
-    #     for framenum in range(self.nfra):
-    #         flow = np.load(os.path.join(path,str(framenum)+'.npy'))
-    #         flow = np.transpose(flow,(2,0,1))
-    #         OF[:,framenum] = torch.from_numpy(flow.reshape(2,self.numpixels)).type(torch.FloatTensor)
-    #     return OF
-
     def readData(self, folderName):
         path = os.path.join(self.rootDir,folderName)
-        OF = torch.FloatTensor(2,self.nfrafol,self.numpixels)
+        OF = torch.FloatTensor(2,self.nfra,self.numpixels)
+        for framenum in range(self.nfra):
 
-        for framenum in range(self.nfrafol):
             flow = np.load(os.path.join(path,str(framenum)+'.npy'))
             flow = np.transpose(flow,(2,0,1))
+
             OF[:,framenum] = torch.from_numpy(flow.reshape(2,self.numpixels)).type(torch.FloatTensor)
         return OF
-
-    # # ____FOR GRAYSCALE IMAGES____
-    # def readData(self, folderName):
-    #     path = os.path.join(self.rootDir, folderName)
-    #     Fr = torch.FloatTensor(1, self.nfra, self.numpixels)
-    #     for framenum in range(self.nfra):
-    #         # frame = Image.open(os.path.join(path, str(framenum) + '.jpg'))
-    #         frame = cv2.imread(os.path.join(path, str(framenum) + '.jpg'), 0)
-    #         flow = np.array(frame, dtype='uint8')/255.
-    #         flow = np.expand_dims(flow, axis=2)
-    #         flow = np.transpose(flow, (2, 0, 1))
-    #         Fr[:, framenum] = torch.from_numpy(flow.reshape(1, self.numpixels)).type(torch.FloatTensor)
-    #     return Fr
-
 
     def __getitem__(self, idx):
         folderName = self.listOfFolders[idx]
@@ -160,3 +138,52 @@ def getListOfFolders_warp(File):
     data = data.str.rstrip(".avi").values.tolist()
 
     return data
+
+
+def PSNR(predi, pix):
+    pix = pix.astype(float)
+    predict = predi.numpy().astype(float)
+    mm = np.amax(predict)
+    mse = np.linalg.norm(predict - pix)
+    mse = mse / (256 * 256)
+    psnr = 10 * math.log10(mm ** 2 / mse)
+
+    return psnr
+
+
+def SSIM(predi, pix):
+    pix = pix.astype(float)
+    predict = predi.numpy().astype(float)
+    ssim_score = measure.compare_ssim(pix[:, :], predict[:, :], win_size=13, data_range=255,
+                                      gaussian_weights=True, sigma=1.5, use_sample_covariance=False,
+                                      K1=0.01, K2=0.03)
+
+    return ssim_score
+
+
+# Sharpness
+def SHARP(predict, pix):
+    predict = predict
+    pix = torch.from_numpy(pix).float()
+    s1 = pix.size()[0]
+    s2 = s1 + 1  # dim after padding
+    pp1 = torch.cat((torch.zeros(1, s1), predict), 0)  # predict top row padding
+    pp2 = torch.cat((torch.zeros(s1, 1), predict), 1)  # predict first col padding
+    oo1 = torch.cat((torch.zeros(1, s1), pix), 0)  # pix top row padding
+    oo2 = torch.cat((torch.zeros(s1, 1), pix), 1)  # pix first col padding
+
+    dxpp = torch.abs(pp1[1:s2, :] - pp1[0:s1, :])
+    dypp = torch.abs(pp2[:, 1:s2] - pp2[:, 0:s1])
+    dxoo = torch.abs(oo1[1:s2, :] - oo1[0:s1, :])
+    dyoo = torch.abs(oo2[:, 1:s2] - oo2[:, 0:s1])
+
+    gra = torch.sum(torch.abs(dxoo + dyoo - dxpp - dypp))
+    mm = torch.max(predict)
+
+    gra = gra / (256 * 256)
+
+    gra = (mm ** 2) / gra
+
+    sharpness = 10 * math.log10(gra)
+
+    return sharpness
